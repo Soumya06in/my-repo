@@ -5,7 +5,7 @@ def NEXUS_VERSION = "nexus3"
         def NEXUS_CREDENTIAL_ID = "nexus1"
 node{
         stage('Checkout'){
-           git 'https://github.com/bkkinfo/testDevops'
+           git 'https://github.com/Soumya06in/my-repo'
           } 
           
         
