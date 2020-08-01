@@ -1,49 +1,65 @@
-node {
-   // This is to demo github action	
-   def sonarUrl = 'sonar.host.url=http://51.124.79.117:9000'
-   def mvn = tool (name: 'maven3', type: 'maven') + '/bin/mvn'
-   stage('SCM Checkout'){
-    // Clone repo
-	git branch: 'master', 
-	credentialsId: 'github', 
-	url: 'https://github.com/javahometech/myweb'
+def NEXUS_VERSION = "nexus3"
+        def NEXUS_PROTOCOL = "http"
+        def NEXUS_URL ="52.188.142.197:9000"
+        def NEXUS_REPOSITORY = "nexrepo"
+        def NEXUS_CREDENTIAL_ID = "nexus1"
+node{
+        stage('Checkout'){
+           git 'https://github.com/bkkinfo/testDevops'
+          } 
+          
+        
+        stage('Build') {
+             def mavenHome = tool name: 'maven 3.6.3' , type: 'maven'
+                            sh "${mavenHome}/bin/mvn clean package"
+                       }
+    
+        stage('SonarQube Analysis'){
+            def mavenHome = tool name: 'maven 3.6.3' , type: 'maven'
+            withSonarQubeEnv('sonar'){
+               sh "${mavenHome}/bin/mvn sonar:sonar -Dsonar.projectKey=sonar -Dsonar.host.url=http://51.124.79.117:9000 -Dsonar.login=6b895171321d32ce64fbd2c4a41063fdd74b3b6a"
+            }
+         }
+          
+        stage("Publish to nexus") {
+                script {
+                    // Read POM xml file using 'readMavenPom' step , this step 'readMavenPom' is included in: https://plugins.jenkins.io/pipeline-utility-steps
+                    pom = readMavenPom file: "pom.xml";
+                    // Find built artifact under target folder
+                    filesByGlob = findFiles(glob: "target/*.${pom.packaging}");
+                    // Print some info from the artifact found
+                    echo "${filesByGlob[0].name} ${filesByGlob[0].path} ${filesByGlob[0].directory} ${filesByGlob[0].length} ${filesByGlob[0].lastModified}"
+                    // Extract the path from the File found
+                    artifactPath = filesByGlob[0].path;
+                    // Assign to a boolean response verifying If the artifact name exists
+                    artifactExists = fileExists artifactPath;
+                    if(artifactExists) {
+                        echo "* File: ${artifactPath}, group: ${pom.groupId}, packaging: ${pom.packaging}, version ${pom.version}";
+                        nexusArtifactUploader(
+                            nexusVersion: NEXUS_VERSION,
+                            protocol: NEXUS_PROTOCOL,
+                            nexusUrl: NEXUS_URL,
+                            groupId: pom.groupId,
+                            version: pom.version,
+                            repository: NEXUS_REPOSITORY,
+                            credentialsId: NEXUS_CREDENTIAL_ID,
+                            artifacts: [
+                                // Artifact generated such as .jar, .ear and .war files.
+                                [artifactId: pom.artifactId,
+                                classifier: '',
+                                file: artifactPath,
+                                type: pom.packaging],
+                                // Lets upload the pom.xml
+                                [artifactId: pom.artifactId,
+                                classifier: '',
+                                file: "pom.xml",
+                                type: "xml"]
+                            ]
+                        );
+                    } else {
+                                 error "* File: ${artifactPath}, could not be found";
+                    }
+                }
+        } 
    
-   }
-   
-   stage('Sonar Publish'){
-	   withCredentials([string(credentialsId: 'sonarqube', variable: 'sonarToken')]) {
-        def sonarToken = "sonar.login=${sonarToken}"
-        sh "${mvn} sonar:sonar -D${sonarUrl}  -D${sonarToken}"
-	 }
-      
-   }
-   
-	
-   stage('Mvn Package'){
-	   // Build using maven
-	   
-	   sh "${mvn} clean package deploy"
-   }
-   
-   stage('deploy-dev'){
-       def tomcatDevIp = '172.31.28.172'
-	   def tomcatHome = '/opt/tomcat8/'
-	   def webApps = tomcatHome+'webapps/'
-	   def tomcatStart = "${tomcatHome}bin/startup.sh"
-	   def tomcatStop = "${tomcatHome}bin/shutdown.sh"
-	   
-	   sshagent (credentials: ['tomcat-dev']) {
-	      sh "scp -o StrictHostKeyChecking=no target/myweb*.war ec2-user@${tomcatDevIp}:${webApps}myweb.war"
-          sh "ssh ec2-user@${tomcatDevIp} ${tomcatStop}"
-		  sh "ssh ec2-user@${tomcatDevIp} ${tomcatStart}"
-       }
-   }
-   stage('Email Notification'){
-		mail bcc: '', body: """Hi Team, You build successfully deployed
-		                       Job URL : ${env.JOB_URL}
-							   Job Name: ${env.JOB_NAME}
-Thanks,
-DevOps Team""", cc: '', from: '', replyTo: '', subject: "${env.JOB_NAME} Success", to: 'hari.kammana@gmail.com'
-   
-   }
-}
+ }
